@@ -27,9 +27,7 @@
     </header>
 
     <!-- ===== HISTORY BAR ===== -->
-    <div class="history-bar" id="historyBar">
-      <!-- Заполняется динамически -->
-    </div>
+    <div class="history-bar" id="historyBar"></div>
 
     <!-- ===== GAME CANVAS ===== -->
     <div class="game-container">
@@ -44,7 +42,6 @@
           <span id="countdownValue">5</span>
         </div>
       </div>
-      <!-- Gift Preview Popup -->
       <div class="gift-preview" id="giftPreview" style="display:none">
         <div class="gift-preview-content">
           <div class="gift-emoji" id="giftEmoji">🎁</div>
@@ -81,9 +78,7 @@
         <button class="quick-bet" data-amount="50">50</button>
         <button class="quick-bet" data-amount="100">100</button>
       </div>
-      <button class="btn-action btn-bet" id="btnBet">
-        СТАВКА
-      </button>
+      <button class="btn-action btn-bet" id="btnBet">СТАВКА</button>
       <button class="btn-action btn-cashout" id="btnCashout" style="display:none">
         ЗАБРАТЬ <span id="cashoutAmount">0.00</span> TON
       </button>
@@ -95,9 +90,7 @@
         <span>👥 Игроки</span>
         <span class="players-count" id="playersCount">0</span>
       </div>
-      <div class="players-list" id="playersList">
-        <!-- Заполняется динамически -->
-      </div>
+      <div class="players-list" id="playersList"></div>
     </div>
 
     <!-- ===== BOTTOM NAV ===== -->
@@ -120,71 +113,56 @@
       </button>
     </nav>
 
-    <!-- ===== DEPOSIT MODAL ===== -->
+    <!-- ===== DEPOSIT MODAL (CryptoBot only) ===== -->
     <div class="modal" id="depositModal" style="display:none">
       <div class="modal-backdrop" data-close="depositModal"></div>
       <div class="modal-content">
         <div class="modal-header">
-          <h2>💳 Пополнение</h2>
+          <h2>💳 Пополнение через CryptoBot</h2>
           <button class="modal-close" data-close="depositModal">✕</button>
         </div>
         <div class="modal-body">
-          <div class="deposit-methods">
-            <!-- 1. Telegram Gifts -->
-            <div class="deposit-card" id="depositGift">
-              <div class="deposit-icon">🎁</div>
-              <div class="deposit-info">
-                <h3>Telegram Подарки (NFT)</h3>
-                <p>Отправьте NFT подарок боту</p>
-              </div>
-              <span class="arrow">›</span>
+          <div class="deposit-form">
+            <div class="form-group">
+              <label>Валюта</label>
+              <select class="form-select" id="dfCurrency">
+                <option value="TON">TON</option>
+                <option value="USDT">USDT</option>
+                <option value="BTC">BTC</option>
+                <option value="ETH">ETH</option>
+              </select>
             </div>
-            
-            <!-- 2. Crypto Wallet -->
-            <div class="deposit-card" id="depositWallet">
-              <div class="deposit-icon">👛</div>
-              <div class="deposit-info">
-                <h3>Крипто Кошелёк</h3>
-                <p>TON, USDT, BTC, ETH, SOL</p>
-              </div>
-              <span class="arrow">›</span>
+            <div class="form-group">
+              <label>Сумма</label>
+              <input type="number" class="form-input" id="dfAmount" placeholder="10" min="0.1" step="0.1">
             </div>
-            
-            <!-- 3. CryptoBot -->
-            <div class="deposit-card" id="depositCryptoBot">
-              <div class="deposit-icon">🤖</div>
-              <div class="deposit-info">
-                <h3>CryptoBot</h3>
-                <p>Быстрый перевод через @CryptoBot</p>
-              </div>
-              <span class="arrow">›</span>
+            <div class="bet-quick-amounts" style="margin: 10px 0">
+              <button class="quick-deposit" onclick="document.getElementById('dfAmount').value=1">1</button>
+              <button class="quick-deposit" onclick="document.getElementById('dfAmount').value=5">5</button>
+              <button class="quick-deposit" onclick="document.getElementById('dfAmount').value=10">10</button>
+              <button class="quick-deposit" onclick="document.getElementById('dfAmount').value=50">50</button>
+              <button class="quick-deposit" onclick="document.getElementById('dfAmount').value=100">100</button>
             </div>
+            <div class="form-hint">
+              🤖 Будет создан инвойс в @CryptoBot. После оплаты баланс пополнится автоматически.
+            </div>
+            <button class="btn-submit" id="btnCreateInvoice">СОЗДАТЬ ИНВОЙС</button>
             
-            <!-- 4. Telegram Stars -->
-            <div class="deposit-card" id="depositStars">
-              <div class="deposit-icon">⭐</div>
-              <div class="deposit-info">
-                <h3>Telegram Stars</h3>
-                <p>Оплата звёздами Telegram</p>
-              </div>
-              <span class="arrow">›</span>
+            <!-- Статус ожидания оплаты -->
+            <div class="payment-status" id="paymentStatus" style="display:none">
+              <div class="payment-spinner">⏳</div>
+              <div class="payment-text" id="paymentText">Ожидание оплаты...</div>
+              <button class="btn-check-payment" id="btnCheckPayment">Проверить оплату</button>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
 
-    <!-- ===== DEPOSIT FORM MODAL ===== -->
-    <div class="modal" id="depositFormModal" style="display:none">
-      <div class="modal-backdrop" data-close="depositFormModal"></div>
-      <div class="modal-content">
-        <div class="modal-header">
-          <button class="modal-back" id="depositFormBack">←</button>
-          <h2 id="depositFormTitle">Пополнение</h2>
-          <button class="modal-close" data-close="depositFormModal">✕</button>
-        </div>
-        <div class="modal-body" id="depositFormBody">
-          <!-- Заполняется динамически -->
+          <!-- История депозитов -->
+          <div class="deposit-history" style="margin-top: 16px">
+            <h3 style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px">📜 Последние депозиты</h3>
+            <div id="depositHistory" class="history-list">
+              <div class="empty-state">Пусто</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -194,19 +172,39 @@
       <div class="modal-backdrop" data-close="withdrawModal"></div>
       <div class="modal-content">
         <div class="modal-header">
-          <h2>🎁 Вывод подарков</h2>
+          <h2>🎁 Вывод подарками</h2>
           <button class="modal-close" data-close="withdrawModal">✕</button>
         </div>
         <div class="modal-body">
           <div class="withdraw-notice">
-            <p>⚠️ Вывод доступен <strong>только в виде Telegram NFT подарков</strong>, которые вы выиграли в игре.</p>
-            <p>Деньги и крипта не выводятся.</p>
+            <p>💡 Вывод доступен <strong>только в виде Telegram подарков</strong>.</p>
+            <p>Подарки можно выиграть в игре или купить за баланс.</p>
           </div>
-          <div class="gifts-list" id="giftsList">
-            <div class="empty-state">У вас пока нет подарков. Играйте и выигрывайте!</div>
+
+          <!-- Tabs -->
+          <div class="withdraw-tabs">
+            <button class="wtab active" data-wtab="won" id="wtabWon">🏆 Выигранные</button>
+            <button class="wtab" data-wtab="shop" id="wtabShop">🛒 Магазин</button>
+            <button class="wtab" data-wtab="history" id="wtabHistory">📜 История</button>
           </div>
-          <div class="withdraw-history">
-            <h3>История выводов</h3>
+
+          <!-- Выигранные подарки -->
+          <div class="wtab-content active" id="wtabContentWon">
+            <div class="gifts-list" id="giftsList">
+              <div class="empty-state">Выиграйте подарок при 3x+ в игре! 🚀</div>
+            </div>
+          </div>
+
+          <!-- Магазин подарков -->
+          <div class="wtab-content" id="wtabContentShop">
+            <div class="shop-balance">
+              Ваш баланс: <span id="shopBalance">0.00</span> TON
+            </div>
+            <div class="gift-catalog" id="giftCatalog"></div>
+          </div>
+
+          <!-- История выводов -->
+          <div class="wtab-content" id="wtabContentHistory">
             <div id="withdrawHistory" class="history-list">
               <div class="empty-state">Пусто</div>
             </div>
@@ -245,16 +243,6 @@
             <div class="stat-card">
               <div class="stat-value" id="statWon">0.00</div>
               <div class="stat-label">Выиграно</div>
-            </div>
-          </div>
-          <div class="wallet-section">
-            <h3>👛 Крипто кошелёк</h3>
-            <div class="wallet-input-wrap">
-              <input type="text" id="walletInput" placeholder="Адрес кошелька (TON, EVM...)" />
-              <button class="btn-connect-wallet" id="btnConnectWallet">Привязать</button>
-            </div>
-            <div class="wallet-connected" id="walletConnected" style="display:none">
-              ✅ <span id="walletAddress"></span>
             </div>
           </div>
           <div class="bet-history-section">

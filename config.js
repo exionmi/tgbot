@@ -27,13 +27,25 @@ module.exports = {
 
   // NFT Gifts tiers based on multiplier
   GIFT_TIERS: [
-    { minMultiplier: 3.0,  maxMultiplier: 5.0,  gifts: ['🎁 Bronze Gift', '⭐ Small Star Pack'], value: 5 },
-    { minMultiplier: 5.0,  maxMultiplier: 10.0,  gifts: ['🎄 Silver Gift', '💎 Crystal NFT'], value: 15 },
-    { minMultiplier: 10.0, maxMultiplier: 20.0,  gifts: ['🏆 Gold Gift', '🚀 Rocket NFT'], value: 50 },
-    { minMultiplier: 20.0, maxMultiplier: 35.0,  gifts: ['👑 Platinum Gift', '🌟 Legendary Star'], value: 150 },
-    { minMultiplier: 35.0, maxMultiplier: 50.0,  gifts: ['💰 Diamond Gift', '🔥 Ultimate NFT'], value: 500 },
+    { minMultiplier: 3.0,  maxMultiplier: 5.0,  gifts: ['🎁 Bronze Gift', '⭐ Star Pack'], value: 5 },
+    { minMultiplier: 5.0,  maxMultiplier: 10.0,  gifts: ['🎄 Silver Gift', '💎 Crystal'], value: 15 },
+    { minMultiplier: 10.0, maxMultiplier: 20.0,  gifts: ['🏆 Gold Gift', '🚀 Rocket'], value: 50 },
+    { minMultiplier: 20.0, maxMultiplier: 35.0,  gifts: ['👑 Platinum Gift', '🌟 Legend'], value: 150 },
+    { minMultiplier: 35.0, maxMultiplier: 50.0,  gifts: ['💰 Diamond Gift', '🔥 Ultimate'], value: 500 },
   ],
 
-  // Supported currencies
-  CURRENCIES: ['TON', 'USDT', 'BTC', 'ETH', 'SOL'],
+  // Каталог подарков для покупки за баланс (вывод)
+  GIFT_CATALOG: [
+    { id: 1, name: '🎁 Подарок Bronze',  emoji: '🎁', tier: 'bronze',   price: 5,   description: 'Базовый подарок' },
+    { id: 2, name: '⭐ Star Pack',       emoji: '⭐', tier: 'bronze',   price: 10,  description: 'Набор звёзд' },
+    { id: 3, name: '🎄 Подарок Silver',  emoji: '🎄', tier: 'silver',   price: 25,  description: 'Серебряный подарок' },
+    { id: 4, name: '💎 Crystal',          emoji: '💎', tier: 'silver',   price: 50,  description: 'Кристальный подарок' },
+    { id: 5, name: '🏆 Подарок Gold',    emoji: '🏆', tier: 'gold',     price: 100, description: 'Золотой подарок' },
+    { id: 6, name: '🚀 Rocket NFT',      emoji: '🚀', tier: 'gold',     price: 200, description: 'Ракета NFT' },
+    { id: 7, name: '👑 Platinum Gift',   emoji: '👑', tier: 'platinum', price: 500, description: 'Платиновый подарок' },
+    { id: 8, name: '💰 Diamond Gift',    emoji: '💰', tier: 'diamond',  price: 1000, description: 'Бриллиантовый подарок' },
+  ],
+
+  // Supported currencies for deposit
+  CURRENCIES: ['TON', 'USDT', 'BTC', 'ETH'],
 };

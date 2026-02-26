@@ -166,6 +166,10 @@ const queries = {
     SELECT * FROM deposits WHERE user_id = ? ORDER BY created_at DESC LIMIT 50
   `),
 
+  getDepositByExternalId: db.prepare(`
+    SELECT * FROM deposits WHERE external_id = ? LIMIT 1
+  `),
+
   // --- Withdrawals ---
   createWithdrawal: db.prepare(`
     INSERT INTO withdrawals (user_id, gift_id, gift_name, gift_value, status)

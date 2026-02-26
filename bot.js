@@ -1,6 +1,8 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const config = require('./config');
+const { queries } = require('./database/db');
+const { giftWithdrawalEmitter } = require('./events');
 
 if (!config.BOT_TOKEN) {
   console.error('❌ BOT_TOKEN не задан в .env файле!');
@@ -16,19 +18,15 @@ bot.onText(/\/start/, (msg) => {
 
   bot.sendMessage(chatId, 
     `🚀 *Привет, ${firstName}!*\n\n` +
-    `Добро пожаловать в *Crash Rocket* — увлекательную игру, где ракетка взлетает, а ты решаешь, когда забрать выигрыш!\n\n` +
+    `Добро пожаловать в *Crash Rocket* — ракета взлетает, а ты решаешь, когда забрать выигрыш!\n\n` +
     `🎮 *Как играть:*\n` +
     `1. Делай ставку\n` +
     `2. Ракетка взлетает, множитель растёт\n` +
     `3. Успей забрать до взрыва!\n` +
-    `4. При 3x и выше — получи NFT подарок 🎁\n\n` +
-    `💰 *Пополнение:*\n` +
-    `• Telegram Подарки (NFT)\n` +
-    `• Крипто кошелёк (TON, USDT, BTC...)\n` +
-    `• CryptoBot\n` +
-    `• Telegram Stars ⭐\n\n` +
-    `🎁 *Вывод:* Только в виде Telegram NFT подарков!\n\n` +
-    `Нажми кнопку ниже, чтобы начать играть! 👇`,
+    `4. При 3x+ — получи подарок 🎁\n\n` +
+    `💰 *Пополнение:* через CryptoBot (TON, USDT, BTC)\n` +
+    `🎁 *Вывод:* Telegram подарки!\n\n` +
+    `Нажми кнопку ниже 👇`,
     {
       parse_mode: 'Markdown',
       reply_markup: {
@@ -53,12 +51,10 @@ bot.on('callback_query', async (query) => {
   switch (data) {
     case 'deposit':
       bot.sendMessage(chatId,
-        `💳 *Способы пополнения:*\n\n` +
-        `1️⃣ *Telegram Подарки (NFT)* — отправьте подарок этому боту\n` +
-        `2️⃣ *Крипто кошелёк* — TON, USDT, BTC, ETH, SOL\n` +
-        `3️⃣ *CryptoBot* — быстрый перевод через @CryptoBot\n` +
-        `4️⃣ *Telegram Stars* ⭐ — оплата звёздами\n\n` +
-        `Откройте игру и выберите способ пополнения 👇`,
+        `💳 *Пополнение через CryptoBot*\n\n` +
+        `Откройте игру, нажмите "Депозит" и выберите сумму.\n` +
+        `Будет создан инвойс в @CryptoBot.\n\n` +
+        `💵 Доступные валюты: TON, USDT, BTC, ETH`,
         {
           parse_mode: 'Markdown',
           reply_markup: {
@@ -71,66 +67,89 @@ bot.on('callback_query', async (query) => {
       break;
 
     case 'gifts':
-      bot.sendMessage(chatId,
-        `🎁 *Ваши подарки*\n\n` +
-        `Чтобы увидеть и вывести выигранные NFT подарки, откройте игру и перейдите в раздел "Вывод".\n\n` +
-        `⚠️ Вывод доступен *только в виде Telegram NFT подарков!*`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🎮 Открыть игру', web_app: { url: config.WEBAPP_URL } }],
-            ]
+      {
+        const telegramId = String(query.from.id);
+        const user = queries.getUser.get(telegramId);
+        
+        if (user) {
+          const gifts = queries.getUserGifts.all(user.id);
+          const available = gifts.filter(g => g.status === 'available');
+          
+          let text = `🎁 *Ваши подарки*\n\n`;
+          if (available.length > 0) {
+            text += `У вас ${available.length} подарок(ов):\n\n`;
+            available.forEach((g, i) => {
+              text += `${i + 1}. ${g.name} — ${g.value} TON\n`;
+            });
+            text += `\nОткройте игру → "Вывод" чтобы забрать!`;
+          } else {
+            text += `Пока нет подарков. Играйте и выигрывайте! 🚀\n\n`;
+            text += `💡 Подарки можно:\n• Выиграть в игре (при 3x+)\n• Купить за баланс в разделе "Вывод"`;
           }
+          
+          bot.sendMessage(chatId, text, {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🎮 Открыть игру', web_app: { url: config.WEBAPP_URL } }],
+              ]
+            }
+          });
+        } else {
+          bot.sendMessage(chatId, '🎁 Сначала запустите игру, чтобы создать аккаунт!', {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🎮 Открыть игру', web_app: { url: config.WEBAPP_URL } }],
+              ]
+            }
+          });
         }
-      );
+      }
       break;
 
     case 'stats':
-      bot.sendMessage(chatId,
-        `📊 *Ваша статистика*\n\n` +
-        `Откройте профиль в игре для подробной статистики 👇`,
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '🎮 Открыть игру', web_app: { url: config.WEBAPP_URL } }],
-            ]
-          }
+      {
+        const telegramId = String(query.from.id);
+        const user = queries.getUser.get(telegramId);
+        
+        if (user) {
+          bot.sendMessage(chatId,
+            `📊 *Ваша статистика*\n\n` +
+            `💰 Баланс: ${user.balance.toFixed(2)} TON\n` +
+            `📥 Внесено: ${user.total_deposited.toFixed(2)} TON\n` +
+            `🎰 Поставлено: ${user.total_wagered.toFixed(2)} TON\n` +
+            `🏆 Выиграно: ${user.total_won.toFixed(2)} TON\n`,
+            {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '🎮 Играть', web_app: { url: config.WEBAPP_URL } }],
+                ]
+              }
+            }
+          );
+        } else {
+          bot.sendMessage(chatId, '📊 Сначала запустите игру!', {
+            reply_markup: { inline_keyboard: [[{ text: '🎮 Открыть игру', web_app: { url: config.WEBAPP_URL } }]] }
+          });
         }
-      );
+      }
       break;
 
     case 'leaderboard':
-      // Fetch leaderboard from API
       try {
-        const http = require('http');
-        const options = { hostname: 'localhost', port: config.PORT, path: '/api/leaderboard', method: 'GET' };
-        
-        const req = http.request(options, (res) => {
-          let data = '';
-          res.on('data', chunk => data += chunk);
-          res.on('end', () => {
-            try {
-              const json = JSON.parse(data);
-              if (json.success && json.leaders.length > 0) {
-                let text = '🏆 *Топ игроков:*\n\n';
-                json.leaders.forEach((l, i) => {
-                  const medals = ['🥇', '🥈', '🥉'];
-                  const prefix = i < 3 ? medals[i] : `${i + 1}.`;
-                  text += `${prefix} ${l.username || l.first_name || 'Аноним'} — ${l.total_won.toFixed(2)} TON\n`;
-                });
-                bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
-              } else {
-                bot.sendMessage(chatId, '🏆 Пока нет данных. Будьте первым!');
-              }
-            } catch (e) {
-              bot.sendMessage(chatId, '🏆 Данные загружаются...');
-            }
+        const leaders = queries.getLeaderboard.all();
+        if (leaders.length > 0) {
+          let text = '🏆 *Топ игроков:*\n\n';
+          const medals = ['🥇', '🥈', '🥉'];
+          leaders.forEach((l, i) => {
+            const prefix = i < 3 ? medals[i] : `${i + 1}.`;
+            text += `${prefix} ${l.username || l.first_name || 'Аноним'} — ${l.total_won.toFixed(2)} TON\n`;
           });
-        });
-        req.on('error', () => bot.sendMessage(chatId, '🏆 Загрузка данных...'));
-        req.end();
+          bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+        } else {
+          bot.sendMessage(chatId, '🏆 Пока нет данных. Будьте первым!');
+        }
       } catch (e) {
         bot.sendMessage(chatId, '🏆 Данные временно недоступны');
       }
@@ -143,67 +162,56 @@ bot.on('callback_query', async (query) => {
         `• Ракетка взлетает с множителем от 1.00x\n` +
         `• Множитель растёт до случайного значения (макс. 50x)\n` +
         `• Нажми "ЗАБРАТЬ" до взрыва!\n` +
-        `• При 3x+ — получаешь NFT подарок 🎁\n` +
-        `• Чем выше кэф, тем круче подарок!\n\n` +
+        `• При 3x+ — получаешь подарок 🎁\n\n` +
         `💎 *Тиры подарков:*\n` +
-        `3x-5x: 🎁 Bronze Gift\n` +
-        `5x-10x: 🎄 Silver Gift\n` +
-        `10x-20x: 🏆 Gold Gift\n` +
-        `20x-35x: 👑 Platinum Gift\n` +
-        `35x-50x: 💰 Diamond Gift\n\n` +
-        `🔒 *Безопасность:*\n` +
-        `Каждый раунд имеет доказуемо честный хэш.`,
+        `3x-5x: 🎁 Bronze\n` +
+        `5x-10x: 🎄 Silver\n` +
+        `10x-20x: 🏆 Gold\n` +
+        `20x-35x: 👑 Platinum\n` +
+        `35x-50x: 💰 Diamond\n\n` +
+        `💰 *Пополнение:* CryptoBot (TON/USDT/BTC/ETH)\n` +
+        `🎁 *Вывод:* Только Telegram подарки\n\n` +
+        `🔒 Каждый раунд доказуемо честный (SHA256).`,
         { parse_mode: 'Markdown' }
       );
       break;
   }
 });
 
-// ===== Обработка полученных подарков (NFT) =====
-bot.on('message', (msg) => {
-  // Обработка получения подарка/стикера как NFT
-  if (msg.gift || msg.sticker?.premium_animation) {
-    const chatId = msg.chat.id;
-    const telegramId = String(msg.from.id);
+// ===== Обработка вывода подарков =====
+giftWithdrawalEmitter.on('withdraw', async (data) => {
+  try {
+    const { withdrawalId, telegramId, giftName, giftValue, giftTier } = data;
     
-    bot.sendMessage(chatId,
-      `🎁 *Подарок получен!*\n\n` +
-      `Ваш подарок будет оценён и зачислен на баланс.\n` +
-      `Откройте игру для проверки баланса 👇`,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🎮 Открыть игру', web_app: { url: config.WEBAPP_URL } }],
-          ]
-        }
-      }
+    console.log(`[GIFT] Processing withdrawal #${withdrawalId}: "${giftName}" for user ${telegramId}`);
+    
+    // Отправляем уведомление пользователю
+    await bot.sendMessage(telegramId,
+      `🎁 *Подарок отправлен!*\n\n` +
+      `📦 ${giftName}\n` +
+      `💰 Стоимость: ${giftValue} TON\n` +
+      `📋 Тир: ${giftTier}\n\n` +
+      `Подарок обрабатывается. Вы получите его в ближайшее время! ✨`,
+      { parse_mode: 'Markdown' }
     );
-  }
-});
-
-// ===== Обработка Telegram Stars платежей =====
-bot.on('pre_checkout_query', (query) => {
-  bot.answerPreCheckoutQuery(query.id, true);
-});
-
-bot.on('successful_payment', (msg) => {
-  const chatId = msg.chat.id;
-  const payment = msg.successful_payment;
-  
-  bot.sendMessage(chatId,
-    `⭐ *Оплата Stars принята!*\n\n` +
-    `Сумма: ${payment.total_amount} Stars\n` +
-    `Баланс пополнен! Откройте игру 👇`,
-    {
-      parse_mode: 'Markdown',
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🎮 Играть', web_app: { url: config.WEBAPP_URL } }],
-        ]
-      }
+    
+    // Обновляем статус вывода
+    queries.updateWithdrawalStatus.run('sent', `tg_gift_${Date.now()}`, withdrawalId);
+    queries.updateGiftStatus.run('withdrawn', data.giftId);
+    
+    console.log(`[GIFT] Withdrawal #${withdrawalId} completed for user ${telegramId}`);
+    
+  } catch (err) {
+    console.error('[GIFT] Error processing withdrawal:', err);
+    
+    // Если ошибка — ставим статус failed
+    try {
+      queries.updateWithdrawalStatus.run('failed', '', data.withdrawalId);
+      queries.updateGiftStatus.run('available', data.giftId);
+    } catch (e) {
+      console.error('[GIFT] Error updating status:', e);
     }
-  );
+  }
 });
 
 console.log('🤖 Telegram Bot запущен!');

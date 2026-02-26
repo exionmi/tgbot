@@ -1,0 +1,2 @@
+# Railway Volume монтируется сюда для хранения SQLite базы данных
+# Создайте Volume в Railway Dashboard и примонтируйте его к /app/data

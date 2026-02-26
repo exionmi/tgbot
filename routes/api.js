@@ -1,18 +1,15 @@
 const express = require('express');
 const router = express.Router();
 const { queries } = require('../database/db');
-const config = require('../config');
 
 // ===== Авторизация / Регистрация =====
 router.post('/auth', (req, res) => {
   try {
     const { telegramId, username, firstName } = req.body;
-    
     if (!telegramId) {
       return res.status(400).json({ error: 'telegramId обязателен' });
     }
     
-    // Создаём или получаем пользователя
     queries.createUser.run(String(telegramId), username || '', firstName || '');
     const user = queries.getUser.get(String(telegramId));
     
@@ -27,7 +24,6 @@ router.post('/auth', (req, res) => {
         totalDeposited: user.total_deposited,
         totalWagered: user.total_wagered,
         totalWon: user.total_won,
-        cryptoWallet: user.crypto_wallet,
       }
     });
   } catch (err) {
@@ -36,7 +32,7 @@ router.post('/auth', (req, res) => {
   }
 });
 
-// ===== Получить профиль =====
+// ===== Профиль =====
 router.get('/profile/:telegramId', (req, res) => {
   try {
     const user = queries.getUser.get(req.params.telegramId);
@@ -58,7 +54,6 @@ router.get('/profile/:telegramId', (req, res) => {
         totalDeposited: user.total_deposited,
         totalWagered: user.total_wagered,
         totalWon: user.total_won,
-        cryptoWallet: user.crypto_wallet,
       },
       gifts,
       betHistory: bets,
@@ -82,28 +77,11 @@ router.get('/balance/:telegramId', (req, res) => {
   }
 });
 
-// ===== Привязать кошелёк =====
-router.post('/wallet/connect', (req, res) => {
-  try {
-    const { telegramId, walletAddress } = req.body;
-    if (!telegramId || !walletAddress) {
-      return res.status(400).json({ error: 'telegramId и walletAddress обязательны' });
-    }
-    
-    queries.updateWallet.run(walletAddress, String(telegramId));
-    
-    res.json({ success: true, message: 'Кошелёк привязан!' });
-  } catch (err) {
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
-
-// ===== Список подарков пользователя =====
+// ===== Подарки =====
 router.get('/gifts/:telegramId', (req, res) => {
   try {
     const user = queries.getUser.get(req.params.telegramId);
     if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-    
     const gifts = queries.getUserGifts.all(user.id);
     res.json({ success: true, gifts });
   } catch (err) {

@@ -12,7 +12,7 @@
     username: '',
     firstName: '',
     balance: 0,
-    gameStatus: 'waiting', // waiting, betting, running, crashed
+    gameStatus: 'waiting',
     multiplier: 1.00,
     currentBet: null,
     hasBet: false,
@@ -27,9 +27,11 @@
     trail: [],
     crashed: false,
     explosionParticles: [],
+    pendingInvoiceId: null,
+    checkPaymentInterval: null,
   };
 
-  // ===== Initialize Telegram WebApp =====
+  // ===== Telegram WebApp =====
   const tg = window.Telegram?.WebApp;
   if (tg) {
     tg.ready();
@@ -43,7 +45,7 @@
     }
   }
 
-  // Фоллбэк для тестирования без Telegram
+  // Fallback for testing
   if (!state.telegramId) {
     state.telegramId = 'test_' + Math.floor(Math.random() * 100000);
     state.username = 'TestPlayer';
@@ -51,9 +53,32 @@
   }
 
   // ===== Socket.IO =====
-  const socket = io();
+  const socket = io({
+    extraHeaders: { 'ngrok-skip-browser-warning': '1' }
+  });
 
-  // ===== DOM Elements =====
+  // Helper for GET requests
+  async function apiFetch(url) {
+    const resp = await fetch(url, {
+      headers: { 'ngrok-skip-browser-warning': '1' }
+    });
+    return resp.json();
+  }
+
+  // Helper for POST requests
+  async function apiPost(url, body) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': '1'
+      },
+      body: JSON.stringify(body),
+    });
+    return resp.json();
+  }
+
+  // ===== DOM =====
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
@@ -76,11 +101,9 @@
     playersList: $('#playersList'),
     playersCount: $('#playersCount'),
     depositModal: $('#depositModal'),
-    depositFormModal: $('#depositFormModal'),
-    depositFormTitle: $('#depositFormTitle'),
-    depositFormBody: $('#depositFormBody'),
     withdrawModal: $('#withdrawModal'),
     giftsList: $('#giftsList'),
+    giftCatalog: $('#giftCatalog'),
     withdrawHistory: $('#withdrawHistory'),
     profileModal: $('#profileModal'),
     toastContainer: $('#toastContainer'),
@@ -90,9 +113,13 @@
     winGiftName: $('#winGiftName'),
     winMultiplier: $('#winMultiplier'),
     gameOverlay: $('#gameOverlay'),
+    paymentStatus: $('#paymentStatus'),
+    paymentText: $('#paymentText'),
+    depositHistory: $('#depositHistory'),
+    shopBalance: $('#shopBalance'),
   };
 
-  // ===== Canvas Setup =====
+  // ===== Canvas =====
   function setupCanvas() {
     const canvas = els.gameCanvas;
     const container = canvas.parentElement;
@@ -106,7 +133,6 @@
     state.canvasW = container.clientWidth;
     state.canvasH = container.clientHeight;
 
-    // Init stars
     state.stars = [];
     for (let i = 0; i < 60; i++) {
       state.stars.push({
@@ -126,14 +152,12 @@
   function renderGame() {
     const ctx = state.canvasCtx;
     if (!ctx) return;
-
     const w = state.canvasW;
     const h = state.canvasH;
 
-    // Clear
     ctx.clearRect(0, 0, w, h);
 
-    // Background gradient
+    // Background
     const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
     bgGrad.addColorStop(0, '#050520');
     bgGrad.addColorStop(1, '#0a0a2e');
@@ -150,19 +174,15 @@
       ctx.fill();
     });
 
-    // Grid lines (subtle)
+    // Grid
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
     ctx.lineWidth = 1;
     for (let i = 0; i < 10; i++) {
       const y = h - (h / 10) * i;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
 
     if (state.gameStatus === 'running' && !state.crashed) {
-      // Calculate rocket position based on multiplier
       const progress = Math.min((state.multiplier - 1) / 49, 1);
       const targetY = h * 0.85 - progress * h * 0.75;
       const targetX = w * 0.15 + progress * w * 0.6;
@@ -174,7 +194,6 @@
       state.trail.push({ x: state.rocketX, y: state.rocketY, alpha: 1 });
       if (state.trail.length > 80) state.trail.shift();
 
-      // Draw trail
       if (state.trail.length > 1) {
         ctx.beginPath();
         ctx.moveTo(state.trail[0].x, state.trail[0].y);
@@ -192,14 +211,12 @@
         ctx.strokeStyle = trailGrad;
         ctx.lineWidth = 3;
         ctx.stroke();
-
-        // Glow trail
         ctx.strokeStyle = `rgba(${color}, 0.15)`;
         ctx.lineWidth = 12;
         ctx.stroke();
       }
 
-      // Rocket flame particles
+      // Flame particles
       for (let i = 0; i < 3; i++) {
         state.particles.push({
           x: state.rocketX + (Math.random() - 0.5) * 6,
@@ -212,30 +229,22 @@
         });
       }
 
-      // Update & draw particles
       state.particles = state.particles.filter(p => p.alpha > 0.01);
       state.particles.forEach(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.alpha *= 0.92;
-        p.size *= 0.96;
+        p.x += p.vx; p.y += p.vy; p.alpha *= 0.92; p.size *= 0.96;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = p.color.replace(')', `, ${p.alpha})`).replace('rgb', 'rgba');
-        if (p.color.startsWith('#')) {
-          const r = parseInt(p.color.slice(1, 3), 16);
-          const g = parseInt(p.color.slice(3, 5), 16);
-          const b = parseInt(p.color.slice(5, 7), 16);
-          ctx.fillStyle = `rgba(${r},${g},${b},${p.alpha})`;
-        }
+        const r = parseInt(p.color.slice(1, 3), 16);
+        const g = parseInt(p.color.slice(3, 5), 16);
+        const b = parseInt(p.color.slice(5, 7), 16);
+        ctx.fillStyle = `rgba(${r},${g},${b},${p.alpha})`;
         ctx.fill();
       });
 
-      // Draw rocket emoji
+      // Rocket emoji
       ctx.font = '32px serif';
       ctx.textAlign = 'center';
       ctx.save();
-      // Rotate rocket based on trajectory
       const angle = state.trail.length > 1 ?
         Math.atan2(
           state.rocketY - state.trail[state.trail.length - 2].y,
@@ -247,14 +256,10 @@
       ctx.restore();
 
     } else if (state.crashed) {
-      // Explosion
+      // Explosion particles
       state.explosionParticles = state.explosionParticles.filter(p => p.alpha > 0.01);
       state.explosionParticles.forEach(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.1; // gravity
-        p.alpha *= 0.96;
-        p.size *= 0.97;
+        p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.alpha *= 0.96; p.size *= 0.97;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         const r = parseInt(p.color.slice(1, 3), 16);
@@ -264,7 +269,6 @@
         ctx.fill();
       });
 
-      // Draw trail fading
       if (state.trail.length > 1) {
         ctx.beginPath();
         ctx.moveTo(state.trail[0].x, state.trail[0].y);
@@ -277,16 +281,13 @@
         ctx.stroke();
       }
     } else {
-      // Waiting state — rocket on launchpad
+      // Waiting — rocket on launchpad
       state.rocketX = w * 0.15;
       state.rocketY = h * 0.85;
       ctx.font = '36px serif';
       ctx.textAlign = 'center';
-      // Bobbing animation
       const bob = Math.sin(Date.now() / 500) * 3;
       ctx.fillText('🚀', state.rocketX, state.rocketY + bob);
-
-      // Launchpad
       ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
       ctx.fillRect(state.rocketX - 20, state.rocketY + 12, 40, 4);
     }
@@ -294,7 +295,6 @@
     state.animFrame = requestAnimationFrame(renderGame);
   }
 
-  // ===== Explosion Effect =====
   function createExplosion(x, y) {
     const colors = ['#FF1744', '#FF6B35', '#FFD600', '#FF9100', '#FF5252'];
     for (let i = 0; i < 50; i++) {
@@ -302,10 +302,8 @@
       const speed = Math.random() * 6 + 2;
       state.explosionParticles.push({
         x, y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        size: Math.random() * 6 + 2,
-        alpha: 1,
+        vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+        size: Math.random() * 6 + 2, alpha: 1,
         color: colors[Math.floor(Math.random() * colors.length)],
       });
     }
@@ -314,7 +312,6 @@
   // ===== Socket Events =====
 
   socket.on('connect', () => {
-    console.log('Connected to server');
     socket.emit('auth', {
       telegramId: state.telegramId,
       username: state.username,
@@ -332,7 +329,6 @@
     state.history = data.history || [];
     renderHistory();
     updatePlayersList(data.bets || []);
-
     if (data.status === 'running') {
       state.gameStatus = 'running';
       state.multiplier = data.multiplier || 1;
@@ -369,25 +365,19 @@
     els.gameStatus.textContent = 'Делайте ставки!';
     els.gameStatus.className = 'game-status waiting';
     els.giftPreview.style.display = 'none';
-
     setBetButtonState('waiting');
 
-    // Countdown
     let cd = data.countdown;
     els.countdown.style.display = 'block';
     els.countdownValue.textContent = cd;
     const cdInterval = setInterval(() => {
       cd--;
-      if (cd <= 0) {
-        clearInterval(cdInterval);
-        els.countdown.style.display = 'none';
-      } else {
-        els.countdownValue.textContent = cd;
-      }
+      if (cd <= 0) { clearInterval(cdInterval); els.countdown.style.display = 'none'; }
+      else els.countdownValue.textContent = cd;
     }, 1000);
   });
 
-  socket.on('game:start', (data) => {
+  socket.on('game:start', () => {
     state.gameStatus = 'running';
     state.crashed = false;
     state.trail = [];
@@ -395,18 +385,12 @@
     els.countdown.style.display = 'none';
     els.gameStatus.textContent = '';
     els.gameStatus.className = 'game-status';
-
-    if (state.hasBet) {
-      setBetButtonState('active_bet');
-    } else {
-      setBetButtonState('running');
-    }
+    setBetButtonState(state.hasBet ? 'active_bet' : 'running');
   });
 
   socket.on('game:tick', (data) => {
     state.multiplier = data.multiplier;
     updateMultiplierDisplay();
-
     if (state.hasBet && state.currentBet) {
       const potentialWin = Math.floor(state.currentBet * state.multiplier * 100) / 100;
       els.cashoutAmount.textContent = potentialWin.toFixed(2);
@@ -417,8 +401,6 @@
     state.gameStatus = 'crashed';
     state.crashed = true;
     state.multiplier = data.crashPoint;
-
-    // Explosion
     createExplosion(state.rocketX, state.rocketY);
 
     els.multiplierValue.textContent = data.crashPoint.toFixed(2);
@@ -427,15 +409,11 @@
     els.gameStatus.className = 'game-status crashed';
     els.giftPreview.style.display = 'none';
 
-    if (state.hasBet) {
-      showToast('💥 Ракетка взорвалась! Вы проиграли.', 'error');
-    }
+    if (state.hasBet) showToast('💥 Ракетка взорвалась! Вы проиграли.', 'error');
 
     state.hasBet = false;
     state.currentBet = null;
     setBetButtonState('crashed');
-
-    // Vibration
     if (navigator.vibrate) navigator.vibrate(200);
     if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('heavy');
   });
@@ -451,10 +429,7 @@
       state.balance = data.balance;
       updateBalance();
       showToast(`✅ Ставка ${state.currentBet} TON принята!`, 'success');
-
-      if (state.gameStatus === 'running') {
-        setBetButtonState('active_bet');
-      }
+      if (state.gameStatus === 'running') setBetButtonState('active_bet');
       if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
     } else {
       showToast(`❌ ${data.error}`, 'error');
@@ -463,7 +438,6 @@
   });
 
   socket.on('game:cashout', (data) => {
-    // Update player list
     updatePlayerResult(data.username, data.multiplier, data.profit);
   });
 
@@ -472,12 +446,8 @@
       state.hasBet = false;
       state.balance = data.balance;
       updateBalance();
-
-      // Show win popup
       showWinPopup(data.totalWin, data.cashoutAt, data.gift);
-
       showToast(`🎉 Выигрыш: ${data.totalWin.toFixed(2)} TON (${data.cashoutAt}x)`, 'success');
-
       setBetButtonState('running');
       if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     } else {
@@ -496,19 +466,15 @@
 
   function updateBalance() {
     els.balanceAmount.textContent = state.balance.toFixed(2);
+    if (els.shopBalance) els.shopBalance.textContent = state.balance.toFixed(2);
   }
 
   function updateMultiplierDisplay() {
     const m = state.multiplier;
     els.multiplierValue.textContent = m.toFixed(2);
-
-    if (m >= 10) {
-      els.multiplierValue.className = 'multiplier-value green';
-    } else if (m >= 3) {
-      els.multiplierValue.className = 'multiplier-value orange';
-    } else {
-      els.multiplierValue.className = 'multiplier-value';
-    }
+    if (m >= 10) els.multiplierValue.className = 'multiplier-value green';
+    else if (m >= 3) els.multiplierValue.className = 'multiplier-value orange';
+    else els.multiplierValue.className = 'multiplier-value';
   }
 
   function setBetButtonState(mode) {
@@ -554,10 +520,8 @@
   }
 
   function addPlayerToList(username, amount, status) {
-    // Remove existing entry for same user
     const existing = els.playersList.querySelector(`[data-user="${username}"]`);
     if (existing) existing.remove();
-
     const row = document.createElement('div');
     row.className = 'player-row';
     row.dataset.user = username;
@@ -573,9 +537,9 @@
   function updatePlayerResult(username, multiplier, profit) {
     const row = els.playersList.querySelector(`[data-user="${username}"]`);
     if (row) {
-      const resultEl = row.querySelector('.player-result');
-      resultEl.className = 'player-result win';
-      resultEl.textContent = `${multiplier.toFixed(2)}x (+${profit.toFixed(2)})`;
+      const r = row.querySelector('.player-result');
+      r.className = 'player-result win';
+      r.textContent = `${multiplier.toFixed(2)}x (+${profit.toFixed(2)})`;
     }
   }
 
@@ -585,12 +549,12 @@
       const row = document.createElement('div');
       row.className = 'player-row';
       row.dataset.user = b.username;
-      const statusClass = b.status === 'cashed_out' ? 'win' : (b.status === 'lost' ? 'lose' : 'active');
-      const statusText = b.status === 'cashed_out' ? `${b.cashoutAt?.toFixed(2)}x` : (b.status === 'lost' ? 'Проиграл' : '—');
+      const sc = b.status === 'cashed_out' ? 'win' : (b.status === 'lost' ? 'lose' : 'active');
+      const st = b.status === 'cashed_out' ? `${b.cashoutAt?.toFixed(2)}x` : (b.status === 'lost' ? 'Проиграл' : '—');
       row.innerHTML = `
         <span class="player-name">${escapeHtml(b.username)}</span>
         <span class="player-bet">${b.amount.toFixed(2)} TON</span>
-        <span class="player-result ${statusClass}">${statusText}</span>
+        <span class="player-result ${sc}">${st}</span>
       `;
       els.playersList.appendChild(row);
     });
@@ -601,7 +565,6 @@
     els.playersCount.textContent = els.playersList.children.length;
   }
 
-  // ===== Toast =====
   function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
@@ -610,233 +573,66 @@
     setTimeout(() => toast.remove(), 3000);
   }
 
-  // ===== Win Popup =====
   function showWinPopup(amount, multiplier, gift) {
     els.winAmount.textContent = `+${amount.toFixed(2)} TON`;
     els.winMultiplier.textContent = `${multiplier.toFixed(2)}x`;
-
     if (gift) {
       els.winGift.style.display = 'block';
       els.winGiftName.textContent = gift.name;
     } else {
       els.winGift.style.display = 'none';
     }
-
     els.winPopup.style.display = 'flex';
   }
 
   // ===== Modals =====
-  function openModal(id) {
-    document.getElementById(id).style.display = 'flex';
-  }
+  function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+  function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-  function closeModal(id) {
-    document.getElementById(id).style.display = 'none';
-  }
-
-  // Close modal on backdrop click
   document.addEventListener('click', (e) => {
-    if (e.target.dataset.close) {
-      closeModal(e.target.dataset.close);
-    }
+    if (e.target.dataset.close) closeModal(e.target.dataset.close);
   });
 
-  // ===== Deposit Forms =====
-  function openDepositForm(type) {
-    let title = '';
-    let html = '';
-
-    switch (type) {
-      case 'telegram_gift':
-        title = '🎁 Telegram Подарки';
-        html = `
-          <div class="deposit-form">
-            <div class="form-hint">
-              Отправьте NFT подарок нашему боту в Telegram, и сумма будет зачислена на ваш баланс автоматически.
-            </div>
-            <div class="form-group">
-              <label>Название подарка</label>
-              <input type="text" class="form-input" id="dfGiftName" placeholder="Например: Birthday Cake">
-            </div>
-            <div class="form-group">
-              <label>Оценочная стоимость (TON)</label>
-              <input type="number" class="form-input" id="dfGiftValue" placeholder="5.0" min="0.1" step="0.1">
-            </div>
-            <div class="form-hint">
-              💡 Отправьте подарок боту @YourBot в Telegram, затем нажмите кнопку ниже.
-            </div>
-            <button class="btn-submit" onclick="App.submitDeposit('telegram_gift')">ПОДТВЕРДИТЬ ПОДАРОК</button>
-          </div>
-        `;
-        break;
-
-      case 'crypto_wallet':
-        title = '👛 Крипто Кошелёк';
-        html = `
-          <div class="deposit-form">
-            <div class="form-group">
-              <label>Валюта</label>
-              <select class="form-select" id="dfCurrency">
-                <option value="TON">TON</option>
-                <option value="USDT">USDT</option>
-                <option value="BTC">BTC</option>
-                <option value="ETH">ETH</option>
-                <option value="SOL">SOL</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Сумма</label>
-              <input type="number" class="form-input" id="dfAmount" placeholder="10" min="0.001" step="0.001">
-            </div>
-            <div class="form-group">
-              <label>Адрес вашего кошелька</label>
-              <input type="text" class="form-input" id="dfWallet" placeholder="UQ...">
-            </div>
-            <div class="form-group">
-              <label>TX Hash (необязательно)</label>
-              <input type="text" class="form-input" id="dfTxHash" placeholder="Хэш транзакции">
-            </div>
-            <div class="form-hint">
-              Отправьте средства на адрес казино, укажите детали и нажмите кнопку.
-              Баланс будет пополнен после подтверждения.
-            </div>
-            <button class="btn-submit" onclick="App.submitDeposit('crypto_wallet')">ПОПОЛНИТЬ</button>
-          </div>
-        `;
-        break;
-
-      case 'cryptobot':
-        title = '🤖 CryptoBot';
-        html = `
-          <div class="deposit-form">
-            <div class="form-group">
-              <label>Валюта</label>
-              <select class="form-select" id="dfCbCurrency">
-                <option value="TON">TON</option>
-                <option value="USDT">USDT</option>
-                <option value="BTC">BTC</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Сумма</label>
-              <input type="number" class="form-input" id="dfCbAmount" placeholder="10" min="0.1" step="0.1">
-            </div>
-            <div class="form-hint">
-              Будет создан инвойс в @CryptoBot. Оплатите его и баланс пополнится автоматически.
-            </div>
-            <button class="btn-submit" onclick="App.submitDeposit('cryptobot')">СОЗДАТЬ ИНВОЙС</button>
-          </div>
-        `;
-        break;
-
-      case 'telegram_stars':
-        title = '⭐ Telegram Stars';
-        html = `
-          <div class="deposit-form">
-            <div class="form-group">
-              <label>Количество Stars</label>
-              <input type="number" class="form-input" id="dfStars" placeholder="100" min="1" step="1">
-            </div>
-            <div class="form-hint">
-              1 Star = 0.01 TON. Оплата происходит через Telegram Stars API.
-            </div>
-            <div class="bet-quick-amounts" style="margin: 10px 0">
-              <button class="quick-bet" onclick="document.getElementById('dfStars').value=100">100⭐</button>
-              <button class="quick-bet" onclick="document.getElementById('dfStars').value=500">500⭐</button>
-              <button class="quick-bet" onclick="document.getElementById('dfStars').value=1000">1000⭐</button>
-              <button class="quick-bet" onclick="document.getElementById('dfStars').value=5000">5000⭐</button>
-            </div>
-            <button class="btn-submit" onclick="App.submitDeposit('telegram_stars')">ОПЛАТИТЬ STARS</button>
-          </div>
-        `;
-        break;
-    }
-
-    els.depositFormTitle.textContent = title;
-    els.depositFormBody.innerHTML = html;
-    closeModal('depositModal');
-    openModal('depositFormModal');
-  }
-
-  // ===== Submit Deposit =====
-  async function submitDeposit(type) {
-    let body = {};
-    let url = '';
-
-    switch (type) {
-      case 'telegram_gift': {
-        const name = document.getElementById('dfGiftName')?.value;
-        const value = parseFloat(document.getElementById('dfGiftValue')?.value);
-        if (!name || !value || value <= 0) {
-          showToast('Заполните все поля!', 'error');
-          return;
-        }
-        url = '/api/deposit/telegram-gift';
-        body = { telegramId: state.telegramId, giftName: name, giftValue: value };
-        break;
-      }
-      case 'crypto_wallet': {
-        const currency = document.getElementById('dfCurrency')?.value;
-        const amount = parseFloat(document.getElementById('dfAmount')?.value);
-        const wallet = document.getElementById('dfWallet')?.value;
-        const txHash = document.getElementById('dfTxHash')?.value;
-        if (!amount || amount <= 0) {
-          showToast('Введите сумму!', 'error');
-          return;
-        }
-        url = '/api/deposit/crypto-wallet';
-        body = { telegramId: state.telegramId, amount, currency, walletAddress: wallet, txHash };
-        break;
-      }
-      case 'cryptobot': {
-        const currency = document.getElementById('dfCbCurrency')?.value;
-        const amount = parseFloat(document.getElementById('dfCbAmount')?.value);
-        if (!amount || amount <= 0) {
-          showToast('Введите сумму!', 'error');
-          return;
-        }
-        url = '/api/deposit/cryptobot';
-        body = { telegramId: state.telegramId, amount, currency };
-        break;
-      }
-      case 'telegram_stars': {
-        const stars = parseInt(document.getElementById('dfStars')?.value);
-        if (!stars || stars <= 0) {
-          showToast('Введите количество Stars!', 'error');
-          return;
-        }
-        // In Telegram, use Stars payment
-        if (tg?.openInvoice) {
-          // Production: trigger Telegram Stars payment
-        }
-        url = '/api/deposit/telegram-stars';
-        body = { telegramId: state.telegramId, starsAmount: stars };
-        break;
-      }
+  // ===== DEPOSIT (CryptoBot) =====
+  async function createCryptoBotInvoice() {
+    const currency = $('#dfCurrency').value;
+    const amount = parseFloat($('#dfAmount').value);  
+    
+    if (!amount || amount <= 0) {
+      showToast('Введите сумму!', 'error');
+      return;
     }
 
     try {
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      const data = await apiPost('/api/deposit/cryptobot', {
+        telegramId: state.telegramId,
+        amount,
+        currency,
       });
-      const data = await resp.json();
 
       if (data.success) {
-        state.balance = data.balance;
-        updateBalance();
         showToast(`✅ ${data.message}`, 'success');
-        closeModal('depositFormModal');
-
-        if (data.payUrl) {
-          // Open CryptoBot pay URL
-          if (tg?.openLink) {
-            tg.openLink(data.payUrl);
-          } else {
-            window.open(data.payUrl, '_blank');
-          }
+        
+        // Сохраняем ID для проверки
+        state.pendingInvoiceId = data.invoiceId;
+        
+        // Показываем статус ожидания
+        els.paymentStatus.style.display = 'block';
+        els.paymentText.textContent = 'Ожидание оплаты...';
+        
+        // Открываем ссылку на оплату
+        const payLink = data.miniAppUrl || data.payUrl;
+        if (tg?.openTelegramLink && data.payUrl) {
+          tg.openTelegramLink(data.payUrl);
+        } else if (tg?.openLink) {
+          tg.openLink(payLink);
+        } else {
+          window.open(payLink, '_blank');
         }
+        
+        // Запускаем авто-проверку каждые 5 секунд
+        startPaymentCheck(data.invoiceId);
+        
       } else {
         showToast(`❌ ${data.error}`, 'error');
       }
@@ -845,11 +641,69 @@
     }
   }
 
-  // ===== Withdraw =====
+  function startPaymentCheck(invoiceId) {
+    if (state.checkPaymentInterval) clearInterval(state.checkPaymentInterval);
+    
+    let checks = 0;
+    state.checkPaymentInterval = setInterval(async () => {
+      checks++;
+      if (checks > 60) { // 5 минут макс
+        clearInterval(state.checkPaymentInterval);
+        els.paymentText.textContent = 'Время ожидания истекло';
+        return;
+      }
+      
+      await checkPaymentStatus(invoiceId);
+    }, 5000);
+  }
+
+  async function checkPaymentStatus(invoiceId) {
+    try {
+      const id = invoiceId || state.pendingInvoiceId;
+      if (!id) return;
+      
+      const data = await apiPost('/api/deposit/cryptobot/check', {
+        telegramId: state.telegramId,
+        invoiceId: id,
+      });
+      
+      if (data.success && (data.status === 'paid' || data.status === 'already_paid')) {
+        // Оплата подтверждена!
+        if (data.balance !== undefined) {
+          state.balance = data.balance;
+          updateBalance();
+        }
+        
+        els.paymentText.textContent = '✅ Оплата подтверждена!';
+        showToast(`✅ ${data.message || 'Баланс пополнен!'}`, 'success');
+        
+        if (state.checkPaymentInterval) {
+          clearInterval(state.checkPaymentInterval);
+          state.checkPaymentInterval = null;
+        }
+        state.pendingInvoiceId = null;
+        
+        // Скрываем статус через 3 секунды
+        setTimeout(() => {
+          els.paymentStatus.style.display = 'none';
+        }, 3000);
+        
+        if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      }
+    } catch (err) {
+      console.error('Check payment error:', err);
+    }
+  }
+
+  // ===== WITHDRAW =====
   async function loadGifts() {
     try {
-      const resp = await fetch(`/api/deposit/available-gifts/${state.telegramId}`);
-      const data = await resp.json();
+      const data = await apiFetch(`/api/deposit/available-gifts/${state.telegramId}`);
+      
+      if (data.balance !== undefined) {
+        state.balance = data.balance;
+        updateBalance();
+      }
 
       if (data.success && data.gifts.length > 0) {
         els.giftsList.innerHTML = data.gifts.map(g => `
@@ -857,13 +711,36 @@
             <div class="gift-card-icon">${g.name.split(' ')[0] || '🎁'}</div>
             <div class="gift-card-info">
               <div class="gift-card-name">${escapeHtml(g.name)}</div>
-              <div class="gift-card-meta">Множитель: ${g.multiplier.toFixed(2)}x | Ставка: ${g.bet_amount.toFixed(2)} TON</div>
+              <div class="gift-card-meta">${g.multiplier > 0 ? `${g.multiplier.toFixed(2)}x` : 'Куплен'} | ${g.value.toFixed(2)} TON</div>
             </div>
             <button class="btn-withdraw-gift" onclick="App.withdrawGift(${g.id})">Вывести</button>
           </div>
         `).join('');
       } else {
-        els.giftsList.innerHTML = '<div class="empty-state">У вас пока нет подарков. Играйте и выигрывайте! 🚀</div>';
+        els.giftsList.innerHTML = '<div class="empty-state">Выиграйте подарок при 3x+ в игре! 🚀</div>';
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function loadGiftCatalog() {
+    try {
+      const data = await apiFetch('/api/deposit/gift-catalog');
+      if (data.success && data.catalog.length > 0) {
+        els.giftCatalog.innerHTML = data.catalog.map(g => `
+          <div class="catalog-card">
+            <div class="catalog-emoji">${g.emoji}</div>
+            <div class="catalog-info">
+              <div class="catalog-name">${escapeHtml(g.name)}</div>
+              <div class="catalog-desc">${g.description}</div>
+            </div>
+            <div class="catalog-action">
+              <div class="catalog-price">${g.price} TON</div>
+              <button class="btn-buy-gift" onclick="App.buyGift(${g.id})">Купить</button>
+            </div>
+          </div>
+        `).join('');
       }
     } catch (err) {
       console.error(err);
@@ -872,14 +749,15 @@
 
   async function loadWithdrawHistory() {
     try {
-      const resp = await fetch(`/api/deposit/withdrawals/${state.telegramId}`);
-      const data = await resp.json();
-
+      const data = await apiFetch(`/api/deposit/withdrawals/${state.telegramId}`);
       if (data.success && data.withdrawals.length > 0) {
         els.withdrawHistory.innerHTML = data.withdrawals.map(w => `
           <div class="history-item">
-            <span class="info">${escapeHtml(w.gift_name)} | ${w.created_at}</span>
-            <span class="result ${w.status === 'sent' ? 'win' : ''}">${w.status === 'sent' ? '✅ Отправлен' : '⏳ ' + w.status}</span>
+            <span class="info">${escapeHtml(w.gift_name)} | ${w.gift_value} TON</span>
+            <span class="result ${w.status === 'sent' ? 'win' : ''}">${
+              w.status === 'sent' ? '✅ Отправлен' : 
+              w.status === 'failed' ? '❌ Ошибка' : '⏳ Обработка'
+            }</span>
           </div>
         `).join('');
       } else {
@@ -892,17 +770,38 @@
 
   async function withdrawGift(giftId) {
     try {
-      const resp = await fetch('/api/deposit/withdraw-gift', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId: state.telegramId, giftId }),
+      const data = await apiPost('/api/deposit/withdraw-gift', {
+        telegramId: state.telegramId,
+        giftId,
       });
-      const data = await resp.json();
 
       if (data.success) {
         showToast(`🎁 ${data.message}`, 'success');
         loadGifts();
         loadWithdrawHistory();
+        if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      } else {
+        showToast(`❌ ${data.error}`, 'error');
+      }
+    } catch (err) {
+      showToast('❌ Ошибка сети', 'error');
+    }
+  }
+
+  async function buyGift(catalogId) {
+    try {
+      const data = await apiPost('/api/deposit/buy-gift', {
+        telegramId: state.telegramId,
+        catalogId,
+      });
+
+      if (data.success) {
+        state.balance = data.balance;
+        updateBalance();
+        showToast(`🎁 ${data.message}`, 'success');
+        loadGifts();
+        loadWithdrawHistory();
+        if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
       } else {
         showToast(`❌ ${data.error}`, 'error');
       }
@@ -914,9 +813,7 @@
   // ===== Profile =====
   async function loadProfile() {
     try {
-      const resp = await fetch(`/api/profile/${state.telegramId}`);
-      const data = await resp.json();
-
+      const data = await apiFetch(`/api/profile/${state.telegramId}`);
       if (data.success) {
         const u = data.user;
         $('#profileName').textContent = u.firstName || u.username || 'Игрок';
@@ -926,13 +823,6 @@
         $('#statWagered').textContent = u.totalWagered.toFixed(2);
         $('#statWon').textContent = u.totalWon.toFixed(2);
 
-        if (u.cryptoWallet) {
-          $('#walletConnected').style.display = 'block';
-          $('#walletAddress').textContent = u.cryptoWallet.substring(0, 12) + '...' + u.cryptoWallet.substring(u.cryptoWallet.length - 6);
-          $('#walletInput').value = u.cryptoWallet;
-        }
-
-        // Bet history
         if (data.betHistory && data.betHistory.length > 0) {
           $('#betHistory').innerHTML = data.betHistory.map(b => `
             <div class="history-item">
@@ -951,40 +841,26 @@
 
   // ===== Event Listeners =====
 
-  // Bet button
+  // Bet
   els.btnBet.addEventListener('click', () => {
     const amount = parseFloat(els.betAmount.value);
     const autoCashout = parseFloat(els.autoCashout.value) || 0;
-
-    if (!amount || amount <= 0) {
-      showToast('Введите сумму ставки!', 'error');
-      return;
-    }
-
-    socket.emit('game:placeBet', {
-      telegramId: state.telegramId,
-      amount,
-      autoCashout,
-    });
+    if (!amount || amount <= 0) { showToast('Введите сумму ставки!', 'error'); return; }
+    socket.emit('game:placeBet', { telegramId: state.telegramId, amount, autoCashout });
   });
 
-  // Cashout button
+  // Cashout
   els.btnCashout.addEventListener('click', () => {
-    socket.emit('game:cashout', {
-      telegramId: state.telegramId,
-    });
+    socket.emit('game:cashout', { telegramId: state.telegramId });
   });
 
-  // Quick bet amounts
+  // Quick bet
   $$('.quick-bet').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (btn.dataset.amount) {
-        els.betAmount.value = btn.dataset.amount;
-      }
+      if (btn.dataset.amount) els.betAmount.value = btn.dataset.amount;
     });
   });
 
-  // Bet half / double
   $('#betHalf').addEventListener('click', () => {
     const v = parseFloat(els.betAmount.value) || 1;
     els.betAmount.value = Math.max(0.1, v / 2).toFixed(1);
@@ -995,19 +871,20 @@
     els.betAmount.value = Math.min(1000, v * 2).toFixed(1);
   });
 
-  // Open deposit modal
+  // Deposit
   $('#btnOpenDeposit').addEventListener('click', () => openModal('depositModal'));
+  $('#btnCreateInvoice').addEventListener('click', () => createCryptoBotInvoice());
+  $('#btnCheckPayment').addEventListener('click', () => checkPaymentStatus());
 
-  // Deposit method cards
-  $('#depositGift').addEventListener('click', () => openDepositForm('telegram_gift'));
-  $('#depositWallet').addEventListener('click', () => openDepositForm('crypto_wallet'));
-  $('#depositCryptoBot').addEventListener('click', () => openDepositForm('cryptobot'));
-  $('#depositStars').addEventListener('click', () => openDepositForm('telegram_stars'));
-
-  // Back from deposit form
-  $('#depositFormBack').addEventListener('click', () => {
-    closeModal('depositFormModal');
-    openModal('depositModal');
+  // Withdraw tabs
+  $$('.wtab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      $$('.wtab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      $$('.wtab-content').forEach(c => c.classList.remove('active'));
+      const tab = btn.dataset.wtab;
+      $(`#wtabContent${tab.charAt(0).toUpperCase() + tab.slice(1)}`).classList.add('active');
+    });
   });
 
   // Bottom nav
@@ -1028,6 +905,7 @@
           break;
         case 'withdraw':
           loadGifts();
+          loadGiftCatalog();
           loadWithdrawHistory();
           openModal('withdrawModal');
           break;
@@ -1039,32 +917,7 @@
     });
   });
 
-  // Connect wallet
-  $('#btnConnectWallet').addEventListener('click', async () => {
-    const addr = $('#walletInput').value.trim();
-    if (!addr) {
-      showToast('Введите адрес кошелька!', 'error');
-      return;
-    }
-
-    try {
-      const resp = await fetch('/api/wallet/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telegramId: state.telegramId, walletAddress: addr }),
-      });
-      const data = await resp.json();
-      if (data.success) {
-        showToast('✅ Кошелёк привязан!', 'success');
-        $('#walletConnected').style.display = 'block';
-        $('#walletAddress').textContent = addr.substring(0, 12) + '...' + addr.substring(addr.length - 6);
-      }
-    } catch (err) {
-      showToast('❌ Ошибка', 'error');
-    }
-  });
-
-  // Win popup close
+  // Win close
   $('#winClose').addEventListener('click', () => {
     els.winPopup.style.display = 'none';
   });
@@ -1076,17 +929,14 @@
     return div.innerHTML;
   }
 
-  // ===== Expose global API for inline onclick handlers =====
+  // Global API for onclick handlers
   window.App = {
-    submitDeposit,
     withdrawGift,
+    buyGift,
   };
 
   // ===== Init =====
-  window.addEventListener('resize', () => {
-    setupCanvas();
-  });
-
+  window.addEventListener('resize', setupCanvas);
   setupCanvas();
   renderGame();
 
