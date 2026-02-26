@@ -5,11 +5,25 @@ const { queries } = require('./database/db');
 const { giftWithdrawalEmitter } = require('./events');
 
 if (!config.BOT_TOKEN) {
-  console.error('❌ BOT_TOKEN не задан в .env файле!');
-  process.exit(1);
+  console.error('❌ BOT_TOKEN не задан! Бот не запущен.');
+  module.exports = { bot: null, isProduction: false };
+  return;
 }
 
-const bot = new TelegramBot(config.BOT_TOKEN, { polling: true });
+// В продакшне (Railway) — webhook, локально — polling
+const isProduction = !!(process.env.NODE_ENV === 'production' ||
+  (config.WEBAPP_URL && config.WEBAPP_URL.includes('railway.app')));
+
+const bot = new TelegramBot(config.BOT_TOKEN, {
+  polling: !isProduction,
+});
+
+if (!isProduction) {
+  console.log('🤖 Telegram Bot запущен [polling]!');
+} else {
+  console.log('🤖 Telegram Bot запущен [webhook]!');
+}
+console.log(`🌐 WebApp URL: ${config.WEBAPP_URL}`);
 
 // ===== Команда /start =====
 bot.onText(/\/start/, (msg) => {
@@ -214,5 +228,4 @@ giftWithdrawalEmitter.on('withdraw', async (data) => {
   }
 });
 
-console.log('🤖 Telegram Bot запущен!');
-console.log(`🌐 WebApp URL: ${config.WEBAPP_URL}`);
+module.exports = { bot, isProduction };

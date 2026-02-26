@@ -19,6 +19,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ===== Health Check =====
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
 // ===== Routes =====
 const apiRoutes = require('./routes/api');
 const depositRoutes = require('./routes/deposit');
@@ -86,10 +89,10 @@ io.on('connection', (socket) => {
 });
 
 // ===== Запуск сервера =====
-server.listen(config.PORT, () => {
+server.listen(config.PORT, '0.0.0.0', () => {
   console.log(`\n🚀 Crash Rocket Game Server`);
   console.log(`📡 Port: ${config.PORT}`);
-  console.log(`🌐 URL: http://localhost:${config.PORT}`);
+  console.log(`🌐 URL: http://0.0.0.0:${config.PORT}`);
   console.log(`🎮 Game starting...\n`);
   
   // Запуск первого раунда

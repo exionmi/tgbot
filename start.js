@@ -1,12 +1,38 @@
 // ============================================================
 //  COMBINED START — Server + Bot в одном процессе
-//  Используется для продакшна (Railway, etc.)
 // ============================================================
+const config = require('./config');
 
 // Запускаем игровой сервер
-require('./server');
+const { app } = require('./server');
 
-// Запускаем Telegram бота
-require('./bot');
+// Запускаем бота
+let botModule;
+try {
+  botModule = require('./bot');
+} catch (err) {
+  console.error('⚠️ Bot не запустился:', err.message);
+}
 
-console.log('✅ Server + Bot запущены в одном процессе');
+// Если продакшн — подключаем webhook
+if (botModule && botModule.bot && botModule.isProduction) {
+  const webhookPath = `/webhook${config.BOT_TOKEN}`;
+  const webhookUrl = `${config.WEBAPP_URL}${webhookPath}`;
+
+  // Регистрируем маршрут для входящих апдейтов от Telegram
+  app.post(webhookPath, (req, res) => {
+    botModule.bot.processUpdate(req.body);
+    res.sendStatus(200);
+  });
+
+  // Сообщаем Telegram адрес webhook
+  botModule.bot.setWebHook(webhookUrl)
+    .then(() => console.log(`✅ Webhook установлен: ${webhookUrl}`))
+    .catch(err => console.error('❌ Ошибка установки webhook:', err.message));
+}
+
+if (botModule && botModule.bot) {
+  console.log('✅ Server + Bot запущены в одном процессе');
+} else {
+  console.log('⚠️ Сервер запущен без бота');
+}
