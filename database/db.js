@@ -1,16 +1,23 @@
+console.log('[DB] Загрузка better-sqlite3...');
 const Database = require('better-sqlite3');
+console.log('[DB] better-sqlite3 загружен OK');
 const path = require('path');
 
 const dbPath = path.join(__dirname, '..', 'data', 'game.db');
+console.log('[DB] Путь к БД:', dbPath);
 const fs = require('fs');
 
 // Создаём папку data если нет
 const dataDir = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
+  console.log('[DB] Создана папка data');
 }
+console.log('[DB] data директория:', fs.existsSync(dataDir) ? 'есть' : 'НЕ найдена');
 
+console.log('[DB] Открываем БД...');
 const db = new Database(dbPath);
+console.log('[DB] БД открыта OK');
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
