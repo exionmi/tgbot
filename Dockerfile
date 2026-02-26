@@ -5,14 +5,17 @@ RUN apk add --no-cache python3 make g++ gcc
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files first
 COPY package*.json ./
 
-# Install dependencies and rebuild native modules
-RUN npm ci --omit=dev && npm rebuild better-sqlite3
+# Install ALL dependencies (including dev for build)
+RUN npm ci
 
-# Copy source code
+# Copy source code (node_modules excluded via .dockerignore)
 COPY . .
+
+# Rebuild native modules for Linux
+RUN npm rebuild better-sqlite3
 
 # Create data directory
 RUN mkdir -p /app/data
