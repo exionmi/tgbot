@@ -20,6 +20,7 @@ RUN npm rebuild better-sqlite3
 # Create data directory
 RUN mkdir -p /app/data
 
-EXPOSE 3000
+# Порт Railway назначает сам через $PORT
+# EXPOSE убран — Railway автоматически определит порт
 
 CMD ["node", "start.js"]
